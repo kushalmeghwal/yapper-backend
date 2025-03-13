@@ -20,8 +20,9 @@ app.use(express.json());
 const userRoute = require('./routes/userRoute');
 app.use('/api', userRoute);
 
-//database connection
+//import database file
 const connectDB = require('./config/database');
+//database connection call
 connectDB();
 
 //default route
