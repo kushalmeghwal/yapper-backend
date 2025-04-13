@@ -1,10 +1,10 @@
-const User = require('../models/userModel');
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-require('dotenv').config();
+import {User} from '../models/userModel.js';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import 'dotenv/config';
 
 // User Signup
-async function signUp(req, res) {
+export const signUp=async (req, res)=> {
     try {
         const { nickname, username, password } = req.body;
         console.log('User details received:', nickname, username, password);
@@ -12,6 +12,7 @@ async function signUp(req, res) {
         // Check if user already exists
         const existingUser = await User.findOne({ username });
         if (existingUser) {
+            console.log('user already exists');
             return res.status(400).json({
                 success: false,
                 message: 'User already exists',
@@ -39,7 +40,7 @@ async function signUp(req, res) {
 
         return res.status(200).json({
             success: true,
-            message: 'User created successfully'
+            message: 'User created successfully',
         });
 
     } catch (err) {
@@ -52,7 +53,7 @@ async function signUp(req, res) {
 }
 
 // User Login
-async function login(req, res) {
+export const login=async (req, res)=> {
     try {
         const { username, password } = req.body;
 
@@ -84,32 +85,27 @@ async function login(req, res) {
 
         // Generate JWT token
         const token = jwt.sign(
-            { id: user._id, nickname: user.nickname },//payload
-            process.env.JWT_SECRET,//jwt secret key
-            { expiresIn: '2h' }//time
+            { userId: user._id, nickname: user.nickname }, // Payload
+            process.env.JWT_SECRET, // Secret key
+            { expiresIn: "1d" } // Expiry
         );
 
-        // Set cookie with token
-        res.cookie('token', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'Strict',
-            maxAge: 2 * 60 * 60 * 1000,
-        });
 
+        console.log('user login successfully');
         return res.status(200).json({
             success: true,
             message: 'Login successful',
-            token,
+            token:token,
+            userId: user._id,
         });
-
     } catch (err) {
         console.error('Error:', err);
         return res.status(500).json({
             success: false,
-            message: 'Login failed due to some error'
+            message: 'Login failed due to some error',
+            error: err.message,
         });
     }
 }
 
-module.exports = { signUp, login };
+

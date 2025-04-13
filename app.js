@@ -1,36 +1,152 @@
-//import express
-const express=require('express');
+import express from "express";
+import { createServer } from "http";
+import { Server } from "socket.io";
+import cors from "cors";
 
-//initialise express in and as app
-const app=express();
+// Import routes
+import userRoute from './routes/userRoute.js';
 
-//cookie-parser
-const cookieParser = require('cookie-parser');
-app.use(cookieParser());
+// Import dotenv for environment variables
+import 'dotenv/config';
 
-//import dotenv for env file ->for environment variables
-require('dotenv').config();
-const PORT=process.env.PORT || 3000;
+// Import database file
+import connectDB from './config/database.js';
+import {User} from './models/userModel.js';  // Import User model to fetch nicknames
 
-//middleware -> converts body into json format
-app.use(express.urlencoded({ extended: true }));
+// Create Express app
+const app = express();
+const server = createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
+
+// Port
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(cors());
 app.use(express.json());
 
-//mount the route
-const userRoute = require('./routes/userRoute');
+// Mount routes
 app.use('/api', userRoute);
 
-//import database file
-const connectDB = require('./config/database');
-//database connection call
-connectDB();
-
-//default route
-app.get('/',(req,res)=>{
-    res.send('hello');
-});
-//start the server
-app.listen(PORT,()=>{
-    console.log(`app is running successfully on port no ${PORT}`);
+// Default route
+app.get('/', (req, res) => {
+    res.send('Hello, server is running!');
 });
 
+const usersSearching = [];  // Keep track of users searching
+const chatRooms = {};
+
+io.on("connection", (socket) => {
+    console.log("User connected:", socket.id);
+
+    socket.on("start_search", async ({ userId, mood, choice }) => {
+        console.log(`${userId} is searching for ${choice} with mood ${mood}`);
+        console.log("📋 Current users searching:", usersSearching);
+
+        const matchedUserIndex = usersSearching.findIndex((user) => 
+            user.mood === mood &&
+            ((user.choice === "Rizzler" && choice === "Gyatt") || 
+            (user.choice === "Gyatt" && choice === "Rizzler"))
+        );
+
+        if (matchedUserIndex !== -1) {
+            // ✅ Match found
+            const matchedUser = usersSearching[matchedUserIndex];
+            const chatRoomId = `chat_${matchedUser.userId}_${userId}`;
+            chatRooms[chatRoomId] = { users: [matchedUser.userId, userId], messages: [] };
+
+            console.log(`✅ Match found: ${matchedUser.userId} ↔ ${userId}`);
+
+            try {
+                // 🔍 Fetch nicknames from DB
+                const matchedUserDoc = await User.findById(matchedUser.userId);
+                const currentUserDoc = await User.findById(userId);
+
+                const matchedUserNickname = matchedUserDoc?.nickname || "Unknown";
+                const currentUserNickname = currentUserDoc?.nickname || "Unknown";
+
+                // ✅ Emit match event to both users
+                io.to(matchedUser.socketId).emit("match_found", {
+                    chatRoomId,
+                    receiverId: userId,
+                    receiverNickname: currentUserNickname,  // Send the current user's nickname
+                });
+
+                io.to(socket.id).emit("match_found", {
+                    chatRoomId,
+                    receiverId: matchedUser.userId,
+                    receiverNickname: matchedUserNickname,  // Send the matched user's nickname
+                });
+
+                // ✅ Remove matched user from searching list
+                usersSearching.splice(matchedUserIndex, 1);
+            } catch (error) {
+                console.error(" Error fetching nicknames:", error);
+            }
+        } else {
+            // ✅ No match, store in waiting list
+            usersSearching.push({ userId, mood, choice, socketId: socket.id });
+        }
+    });
+
+    console.log("Updated users searching:", usersSearching);
+
+    // ✅ Ensure users join the chat room before sending messages
+    socket.on("join_chat", ({ chatRoomId }) => {
+        socket.join(chatRoomId);
+        console.log(`✅ ${socket.id} joined room: ${chatRoomId}`);
+    
+        // 🛠️ Debugging - List all users in the room
+        const roomUsers = io.sockets.adapter.rooms.get(chatRoomId);
+        console.log(`📋 Users in ${chatRoomId}:`, roomUsers ? Array.from(roomUsers) : "No users found!");
+    });
+    
+
+    // ✅ Handle sending messages
+    socket.on("send_message", ({ chatRoomId, senderId, message }) => {
+        console.log(`📤 Message sent to ${chatRoomId}: ${message} by ${senderId}`);
+        const roomUsers = io.sockets.adapter.rooms.get(chatRoomId);
+        if (!roomUsers) {
+            console.log(`❌ No users in chat room ${chatRoomId}, message not sent`);
+            return;
+        }
+        if (chatRooms[chatRoomId]) {
+            chatRooms[chatRoomId].messages.push({ senderId, message });
+    
+            // ✅ Emit message to all users in the room
+            io.to(chatRoomId).emit("receive_message", { senderId, message });
+        } else {
+            console.log(`❌ Chat room ${chatRoomId} not found!`);
+        }
+    });
+    
+
+    // ✅ Handle user disconnect properly
+    socket.on("disconnect", () => {
+        console.log("User disconnected:", socket.id);
+
+        // ✅ Remove the user from usersSearching list
+        const index = usersSearching.findIndex(user => user.socketId === socket.id);
+        if (index !== -1) {
+            usersSearching.splice(index, 1);
+        }
+
+        // ✅ Remove the user from chatRooms if they were in a chat
+        Object.keys(chatRooms).forEach((roomId) => {
+            chatRooms[roomId].users = chatRooms[roomId].users.filter(id => id !== socket.id);
+            if (chatRooms[roomId].users.length === 0) {
+                delete chatRooms[roomId];
+            }
+        });
+    });
+});
+
+// Start the server
+server.listen(PORT, () => {
+    console.log(` Server is running successfully on port ${PORT}`);
+});
