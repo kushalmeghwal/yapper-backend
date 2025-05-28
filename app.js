@@ -15,7 +15,7 @@ import {User} from './models/userModel.js';  // Import User model to fetch nickn
 
 //import socket
 import socketHandler from "./socket/webSocket.js";
-
+app.enable('trust proxy');
 // Create Express app
 const app = express();
 const server = createServer(app);
@@ -24,6 +24,13 @@ const io = new Server(server, {
         origin: "*",
         methods: ["GET", "POST"]
     }
+});
+
+app.use((req, res, next) => {
+  if (req.protocol === 'http') {
+    return res.redirect(`https://${req.headers.host}${req.url}`);
+  }
+  next();
 });
 
 socketHandler(io); 
