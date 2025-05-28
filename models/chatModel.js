@@ -10,6 +10,10 @@ const messageSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    receiverId: {
+        type: String,
+        required: true
+    },
     message: {
         type: String,
         required: true
@@ -29,4 +33,25 @@ const messageSchema = new mongoose.Schema({
     }
 });
 
+const chatRoomSchema = new mongoose.Schema({
+    chatRoomId: {
+        type: String,
+        required: true,
+        unique: true
+    },
+    participants: [{
+        type: String,
+        required: true
+    }],
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    lastMessage: {
+        type: Date,
+        default: Date.now
+    }
+});
+
 export const Message = mongoose.model('Message', messageSchema);
+export const ChatRoom = mongoose.model('ChatRoom', chatRoomSchema);
