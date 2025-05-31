@@ -14,7 +14,7 @@ import connectDB from './config/database.js';
 import {User} from './models/userModel.js';  // Import User model to fetch nicknames
 
 //import socket
-import socketHandler from "./socket/webSocket.js";
+import socketHandler from "./socket/socketHandler.js";
 app.enable('trust proxy');
 // Create Express app
 const app = express();
@@ -25,7 +25,7 @@ const io = new Server(server, {
         methods: ["GET", "POST"]
     }
 });
-
+//using https always for real world application
 app.use((req, res, next) => {
   if (req.protocol === 'http') {
     return res.redirect(`https://${req.headers.host}${req.url}`);

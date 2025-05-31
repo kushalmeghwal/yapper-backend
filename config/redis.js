@@ -1,12 +1,16 @@
-import { createClient } from 'redis';
+import Redis from 'ioredis';
 
-const redisClient = createClient({
-    url: process.env.REDIS_URL
+// Redis URL from env
+const redis = new Redis(process.env.REDIS_URL, {
+  tls: {} // Required for Upstash SSL
 });
 
-redisClient.on('error', (err) => console.log('Redis Client Error', err));
-redisClient.on('connect', () => console.log('Redis Client Connected'));
+redis.on('connect', () => {
+  console.log('✅ Redis connected successfully');
+});
 
-await redisClient.connect();
+redis.on('error', (err) => {
+  console.error('❌ Redis connection error:', err);
+});
 
-export default redisClient;
+export default redis;
