@@ -11,6 +11,25 @@ export class SocketHandler {
         this.io.on('connection', (socket) => {
             console.log('User connected:', socket.id);
 
+            // Set up ping timeout
+            let pingTimeout;
+            const heartbeat = () => {
+                clearTimeout(pingTimeout);
+                pingTimeout = setTimeout(() => {
+                    console.log(`User ${socket.id} timed out after 60 seconds of inactivity`);
+                    socket.disconnect(true);
+                }, 60000); // 60 seconds timeout
+            };
+
+            // Initial heartbeat
+            heartbeat();
+
+            // Handle ping from client
+            socket.on('ping', () => {
+                heartbeat();
+                socket.emit('pong');
+            });
+
             // Join event - when user connects
             socket.on('join', (userId) => {
                 socket.userId = userId;
@@ -68,11 +87,12 @@ export class SocketHandler {
             });
 
             // Disconnect event
-            socket.on('disconnect', () => {
+            socket.on('disconnect', (reason) => {
                 if (socket.userId) {
+                    console.log(`User ${socket.userId} disconnected. Reason: ${reason}`);
                     this.matchingService.stopSearching(socket.userId);
-                    console.log(`User ${socket.userId} disconnected`);
                 }
+                clearTimeout(pingTimeout);
             });
         });
     }
