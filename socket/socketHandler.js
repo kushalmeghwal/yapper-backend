@@ -11,14 +11,15 @@ export class SocketHandler {
         this.io.on('connection', (socket) => {
             console.log('User connected:', socket.id);
 
-            // Set up ping timeout
+            // Set up ping timeout with a very long duration
             let pingTimeout;
             const heartbeat = () => {
                 clearTimeout(pingTimeout);
+                // Set a very long timeout (24 hours) to keep connections alive
                 pingTimeout = setTimeout(() => {
-                    console.log(`User ${socket.id} timed out after 60 seconds of inactivity`);
+                    console.log(`User ${socket.id} timed out after 24 hours of inactivity`);
                     socket.disconnect(true);
-                }, 60000); // 60 seconds timeout
+                }, 24 * 60 * 60 * 1000); // 24 hours
             };
 
             // Initial heartbeat
@@ -90,6 +91,7 @@ export class SocketHandler {
             socket.on('disconnect', (reason) => {
                 if (socket.userId) {
                     console.log(`User ${socket.userId} disconnected. Reason: ${reason}`);
+                    // Only stop searching, don't remove from active users
                     this.matchingService.stopSearching(socket.userId);
                 }
                 clearTimeout(pingTimeout);
