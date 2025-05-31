@@ -14,27 +14,37 @@ import 'dotenv/config';
 
 import {SocketHandler} from "./socket/socketHandler.js";
 connectDB;
-//import socket
+
 // Create Express app
 const app = express();
 app.enable('trust proxy');
 const server = createServer(app);
+
+// Configure Socket.IO with proper CORS and options
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
+    origin: true, // Allow all origins for mobile app
+    methods: ["GET", "POST"],
+    credentials: true,
+    allowedHeaders: ["*"]
+  },
+  transports: ['websocket', 'polling'],
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  allowEIO3: true
 });
 
-// In server.js or app.js
-// or wherever it's defined
+// Initialize Socket Handler
 new SocketHandler(io);
 
 // Port
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: true, // Allow all origins for mobile app
+  credentials: true
+}));
 app.use(express.json());
 
 // Mount routes
@@ -47,5 +57,5 @@ app.get('/', (req, res) => {
 
 // Start the server
 server.listen(PORT, () => {
-    console.log(` Server is running successfully on port ${PORT}`);
+    console.log(`Server is running successfully on port ${PORT}`);
 });
