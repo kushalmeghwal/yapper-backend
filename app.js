@@ -13,18 +13,11 @@ import userRoute from './routes/userRoute.js';
 import 'dotenv/config';
 
 import {SocketHandler} from "./socket/socketHandler.js";
-connectDB();
+connectDB;
 //import socket
 // Create Express app
 const app = express();
 app.enable('trust proxy');
-//using https always for real world application
-app.use((req, res, next) => {
-  if (req.protocol === 'http') {
-    return res.redirect(`https://${req.headers.host}${req.url}`);
-  }
-  next();
-});
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
