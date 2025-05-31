@@ -15,23 +15,34 @@ export class SocketHandler {
             socket.on('join', (userId) => {
                 socket.userId = userId;
                 socket.join(userId);
-                console.log(`User ${userId} joined`);
+                console.log(`User ${userId} joined with socket ID ${socket.id}`);
             });
 
             // Start searching event
             socket.on('startSearching', ({ userId, type, mood }) => {
-                console.log(`User ${userId} started searching with type ${type} and mood ${mood}`);
+                console.log(`Search request from user ${userId}:`, { type, mood });
+                if (!userId || !type || !mood) {
+                    console.error('Invalid search request:', { userId, type, mood });
+                    return;
+                }
                 this.matchingService.startSearching(userId, type, mood, socket.id);
             });
 
             // Stop searching event
             socket.on('stopSearching', (userId) => {
-                console.log(`User ${userId} stopped searching`);
+                if (!userId) {
+                    console.error('Invalid stop search request: userId is missing');
+                    return;
+                }
                 this.matchingService.stopSearching(userId);
             });
 
             // Send message event
             socket.on('sendMessage', async ({ chatRoomId, senderId, receiverId, message }) => {
+                if (!chatRoomId || !senderId || !receiverId || !message) {
+                    console.error('Invalid message data:', { chatRoomId, senderId, receiverId, message });
+                    return;
+                }
                 console.log(`Message from ${senderId} to ${receiverId}: ${message}`);
                 
                 // Save message to database
@@ -48,6 +59,10 @@ export class SocketHandler {
 
             // Get chat history event
             socket.on('getChatHistory', async ({ chatRoomId }) => {
+                if (!chatRoomId) {
+                    console.error('Invalid chat history request: chatRoomId is missing');
+                    return;
+                }
                 const messages = await this.matchingService.getChatHistory(chatRoomId);
                 socket.emit('chatHistory', messages);
             });
