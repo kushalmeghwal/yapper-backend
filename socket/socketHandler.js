@@ -11,26 +11,6 @@ export class SocketHandler {
         this.io.on('connection', (socket) => {
             console.log('User connected:', socket.id);
 
-            // Set up ping timeout with a very long duration
-            let pingTimeout;
-            const heartbeat = () => {
-                clearTimeout(pingTimeout);
-                // Set a very long timeout (24 hours) to keep connections alive
-                pingTimeout = setTimeout(() => {
-                    console.log(`User ${socket.id} timed out after 24 hours of inactivity`);
-                    socket.disconnect(true);
-                }, 24 * 60 * 60 * 1000); // 24 hours
-            };
-
-            // Initial heartbeat
-            heartbeat();
-
-            // Handle ping from client
-            socket.on('ping', () => {
-                heartbeat();
-                socket.emit('pong');
-            });
-
             // Join event - when user connects
             socket.on('join', (userId) => {
                 socket.userId = userId;

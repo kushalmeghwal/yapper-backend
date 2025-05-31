@@ -1,9 +1,10 @@
 import { createClient } from 'redis';
 import mongoose from 'mongoose';
+import { User } from '../models/userModel.js';
 
 // Redis client for real-time matching
 const redisClient = createClient({
-    url: process.env.REDIS_URL || 'redis://localhost:6379'
+    url: process.env.REDIS_URL 
 });
 
 try {
@@ -56,7 +57,7 @@ export class MatchingService {
             this.io.to(match.socketId).emit('matchFound', {
                 chatRoomId,
                 receiverId: userId,
-                receiverNickname: match.nickname
+                receiverNickname: nickname
             });
 
             // Remove both users from searching pool
@@ -101,9 +102,12 @@ export class MatchingService {
 
     async getUserNickname(userId) {
         try {
-            // TODO: Replace with actual database query to get user nickname
-            // For now, return a placeholder
-            return "User" + userId.substring(0, 4);
+            const user = await User.findById(userId);
+            if (!user) {
+                console.error('User not found:', userId);
+                return "Unknown User";
+            }
+            return user.nickname;
         } catch (error) {
             console.error('Error getting user nickname:', error);
             return "Unknown User";
