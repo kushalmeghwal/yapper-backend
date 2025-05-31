@@ -1,97 +1,64 @@
-import { Server } from 'socket.io';
-import matchingService from './matchingService.js';
-import chatService from './chatService.js';
+import { MatchingService } from './matchingService.js';
 
-class SocketHandler {
-    constructor(server) {
-        this.io = new Server(server, {
-            cors: {
-                origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-                methods: ['GET', 'POST']
-            }
-        });
-        
-        this.activeConnections = new Map();
+export class SocketHandler {
+    constructor(io) {
+        this.io = io;
+        this.matchingService = new MatchingService(io);
         this.setupSocketHandlers();
     }
 
     setupSocketHandlers() {
         this.io.on('connection', (socket) => {
-            console.log('🔌 New connection:', socket.id);
+            console.log('User connected:', socket.id);
 
-            // Handle user authentication
-            socket.on('authenticate', async (userId) => {
-                console.log('🔑 Authenticating user:', userId);
-                this.activeConnections.set(userId, socket.id);
+            // Join event - when user connects
+            socket.on('join', (userId) => {
                 socket.userId = userId;
                 socket.join(userId);
+                console.log(`User ${userId} joined`);
             });
 
-            // Handle search request
-            socket.on('search', async ({ mood, choice }) => {
-                if (!socket.userId) {
-                    socket.emit('error', { message: 'Not authenticated' });
-                    return;
-                }
+            // Start searching event
+            socket.on('startSearching', ({ userId, type, mood }) => {
+                console.log(`User ${userId} started searching with type ${type} and mood ${mood}`);
+                this.matchingService.startSearching(userId, type, mood, socket.id);
+            });
 
-                console.log('🔍 Search request:', { userId: socket.userId, mood, choice });
+            // Stop searching event
+            socket.on('stopSearching', (userId) => {
+                console.log(`User ${userId} stopped searching`);
+                this.matchingService.stopSearching(userId);
+            });
+
+            // Send message event
+            socket.on('sendMessage', async ({ chatRoomId, senderId, receiverId, message }) => {
+                console.log(`Message from ${senderId} to ${receiverId}: ${message}`);
                 
-                try {
-                    const result = await matchingService.addToWaitingList(socket.userId, mood, choice);
-                    
-                    if (result.matched) {
-                        const matchedSocketId = this.activeConnections.get(result.matchedUserId);
-                        if (matchedSocketId) {
-                            // Create a unique room ID for the chat
-                            const roomId = [socket.userId, result.matchedUserId].sort().join('-');
-                            
-                            // Join both users to the room
-                            socket.join(roomId);
-                            this.io.sockets.sockets.get(matchedSocketId)?.join(roomId);
-                            
-                            // Notify both users
-                            this.io.to(roomId).emit('match_found', { roomId });
-                            
-                            console.log('✅ Match created:', {
-                                roomId,
-                                users: [socket.userId, result.matchedUserId]
-                            });
-                        }
-                    } else {
-                        socket.emit('searching');
-                    }
-                } catch (error) {
-                    console.error('❌ Search error:', error);
-                    socket.emit('error', { message: 'Failed to process search request' });
-                }
+                // Save message to database
+                await this.matchingService.saveMessage(chatRoomId, senderId, receiverId, message);
+                
+                // Emit message to receiver
+                this.io.to(receiverId).emit('receiveMessage', {
+                    chatRoomId,
+                    senderId,
+                    message,
+                    timestamp: new Date()
+                });
             });
 
-            // Handle chat messages
-            socket.on('send_message', async ({ roomId, message }) => {
-                if (!socket.userId) {
-                    socket.emit('error', { message: 'Not authenticated' });
-                    return;
-                }
-
-                try {
-                    const savedMessage = await chatService.saveMessage(roomId, socket.userId, message);
-                    this.io.to(roomId).emit('new_message', savedMessage);
-                } catch (error) {
-                    console.error('❌ Message error:', error);
-                    socket.emit('error', { message: 'Failed to send message' });
-                }
+            // Get chat history event
+            socket.on('getChatHistory', async ({ chatRoomId }) => {
+                const messages = await this.matchingService.getChatHistory(chatRoomId);
+                socket.emit('chatHistory', messages);
             });
 
-            // Handle disconnection
+            // Disconnect event
             socket.on('disconnect', () => {
                 if (socket.userId) {
-                    console.log('👋 User disconnected:', socket.userId);
-                    this.activeConnections.delete(socket.userId);
-                    matchingService.removeFromWaitingList(socket.userId);
+                    this.matchingService.stopSearching(socket.userId);
+                    console.log(`User ${socket.userId} disconnected`);
                 }
             });
         });
     }
 }
-
-export default SocketHandler; 
