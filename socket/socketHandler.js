@@ -8,6 +8,7 @@ export class SocketHandler {
     }
 
     setupSocketHandlers() {
+         console.log("setupSocketHandlers CALLED"); 
         this.io.on('connection', (socket) => {
             console.log('User connected:', socket.id);
 

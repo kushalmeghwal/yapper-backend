@@ -2,6 +2,9 @@ import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
+// Import database file
+import connectDB from './config/database.js';
+import {User} from './models/userModel.js';  // Import User model to fetch nicknames
 
 // Import routes
 import userRoute from './routes/userRoute.js';
@@ -9,22 +12,12 @@ import userRoute from './routes/userRoute.js';
 // Import dotenv for environment variables
 import 'dotenv/config';
 
-// Import database file
-import connectDB from './config/database.js';
-import {User} from './models/userModel.js';  // Import User model to fetch nicknames
-
+import {SocketHandler} from "./socket/socketHandler.js";
+connectDB();
 //import socket
-import socketHandler from "./socket/socketHandler.js";
-app.enable('trust proxy');
 // Create Express app
 const app = express();
-const server = createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
-});
+app.enable('trust proxy');
 //using https always for real world application
 app.use((req, res, next) => {
   if (req.protocol === 'http') {
@@ -32,8 +25,18 @@ app.use((req, res, next) => {
   }
   next();
 });
+const server = createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
-socketHandler(io); 
+// In server.js or app.js
+// or wherever it's defined
+new SocketHandler(io);
+
 // Port
 const PORT = process.env.PORT || 3000;
 
