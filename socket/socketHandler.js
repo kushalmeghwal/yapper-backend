@@ -2,6 +2,7 @@ import { MatchingService } from './matchingService.js';
 
 export class SocketHandler {
     constructor(io) {
+               console.log("SocketHandler constructor called");
         this.io = io;
         this.matchingService = new MatchingService(io);
         this.setupSocketHandlers();
