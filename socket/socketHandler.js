@@ -2,7 +2,7 @@ import { MatchingService } from './matchingService.js';
 
 export class SocketHandler {
     constructor(io) {
-               console.log("SocketHandler constructor called");
+
         this.io = io;
         this.matchingService = new MatchingService(io);
         this.setupSocketHandlers();
@@ -47,16 +47,20 @@ export class SocketHandler {
                 }
                 console.log(`Message from ${senderId} to ${receiverId}: ${message}`);
                 
-                // Save message to database
-                await this.matchingService.saveMessage(chatRoomId, senderId, receiverId, message);
-                
-                // Emit message to receiver
-                this.io.to(receiverId).emit('receiveMessage', {
-                    chatRoomId,
-                    senderId,
-                    message,
-                    timestamp: new Date()
-                });
+                try {
+                    // Save message to database and get the saved message
+                    const savedMessage = await this.matchingService.saveMessage(chatRoomId, senderId, receiverId, message);
+                    
+                    // Emit message to both sender and receiver
+                    this.io.to(senderId).emit('receiveMessage', savedMessage);
+                    this.io.to(receiverId).emit('receiveMessage', savedMessage);
+                    
+                    console.log('Message emitted to both users');
+                } catch (error) {
+                    console.error('Error handling message:', error);
+                    // Notify sender about the error
+                    socket.emit('messageError', { error: 'Failed to send message' });
+                }
             });
 
             // Get chat history event
@@ -76,7 +80,6 @@ export class SocketHandler {
                     // Only stop searching, don't remove from active users
                     this.matchingService.stopSearching(socket.userId);
                 }
-                clearTimeout(pingTimeout);
             });
         });
     }

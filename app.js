@@ -3,7 +3,6 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import connectDB from './config/database.js';
-import { User } from './models/userModel.js';
 import userRoute from './routes/userRoute.js';
 import 'dotenv/config';
 import { SocketHandler } from "./socket/socketHandler.js";
@@ -31,9 +30,8 @@ const startServer = async () => {
   });
 
   // Initialize Socket Handler
-  console.log("About to initialize socket handler");
+
   new SocketHandler(io);
-  console.log("Socket handler initialized");
 
   const PORT = process.env.PORT || 3000;
 
