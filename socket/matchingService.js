@@ -3,15 +3,42 @@ import mongoose from 'mongoose';
 import { User } from '../models/userModel.js';
 
 // Redis client for real-time matching
-const redisClient = createClient({
-    url: process.env.REDIS_URL 
-});
+let redisClient;
+try {    
+    redisClient = createClient({
+        url: process.env.REDIS_URL,
+        socket: {
+            tls: true,
+            rejectUnauthorized: false
+        }
+    });
 
-try {
-    redisClient.connect();
-    console.log('Connected to Redis');
+    // Handle Redis connection events
+    redisClient.on('error', (err) => {
+        console.error('Redis Client Error:', err.message);
+        console.error('Error details:', err);
+    });
+
+    redisClient.on('connect', () => {
+        console.log('Successfully connected to Redis');
+    });
+
+    redisClient.on('end', () => {
+        console.log('Redis connection ended');
+    });
+
+    // Connect to Redis
+    (async () => {
+        try {
+            await redisClient.connect();
+        } catch (error) {
+            console.error('Failed to connect to Redis:', error.message);
+            console.error('Connection error details:', error);
+        }
+    })();
 } catch (error) {
-    console.error('Error connecting to Redis:', error);
+    console.error('Redis configuration error:', error.message);
+    console.error('Configuration error details:', error);
 }
 
 // MongoDB Message Schema
@@ -34,6 +61,12 @@ export class MatchingService {
     async startSearching(userId, type, mood, socketId) {
         console.log(`User ${userId} started searching with type ${type} and mood ${mood}`);
         
+        // Validate inputs
+        if (!userId || !type || !mood || !socketId) {
+            console.error('Invalid search parameters:', { userId, type, mood, socketId });
+            return;
+        }
+        
         // Store user's search preferences
         this.searchingUsers.set(userId, { type, mood, socketId });
         
@@ -45,19 +78,27 @@ export class MatchingService {
         
         if (match) {
             console.log(`Match found between ${userId} and ${match.userId}`);
-            const chatRoomId = `chat_${Math.min(userId, match.userId)}_${Math.max(userId, match.userId)}`;
+            
+            // Generate chat room ID using sorted user IDs to ensure consistency
+            const sortedUserIds = [userId, match.userId].sort();
+            const chatRoomId = `chat_${sortedUserIds[0]}_${sortedUserIds[1]}`;
+            console.log('Generated chat room ID:', chatRoomId);
+            
+            // Get nicknames for both users
+            const userNickname = await this.getUserNickname(userId);
+            const matchNickname = await this.getUserNickname(match.userId);
             
             // Notify both users about the match
             this.io.to(socketId).emit('matchFound', {
                 chatRoomId,
                 receiverId: match.userId,
-                receiverNickname: match.nickname
+                receiverNickname: matchNickname
             });
             
             this.io.to(match.socketId).emit('matchFound', {
                 chatRoomId,
                 receiverId: userId,
-                receiverNickname: nickname
+                receiverNickname: userNickname
             });
 
             // Remove both users from searching pool
@@ -116,33 +157,74 @@ export class MatchingService {
 
     async saveMessage(chatRoomId, senderId, receiverId, message) {
         try {
-            const newMessage = new Message({
+            console.log('Saving message:', { chatRoomId, senderId, receiverId, message });
+            
+            // Create message object with timestamp
+            const messageObj = {
                 chatRoomId,
                 senderId,
                 receiverId,
-                message
-            });
-            await newMessage.save();
-            
-            // Store in Redis for real-time access
-            await redisClient.lPush(`chat:${chatRoomId}`, JSON.stringify({
-                senderId,
                 message,
                 timestamp: new Date()
-            }));
+            };
+
+            // Save to MongoDB
+            const newMessage = new Message(messageObj);
+            await newMessage.save();
+            console.log('Message saved to MongoDB');
+            
+            // Store in Redis for real-time access
+            await redisClient.lPush(`chat:${chatRoomId}`, JSON.stringify(messageObj));
+            console.log('Message saved to Redis');
             
             // Keep only last 100 messages in Redis
             await redisClient.lTrim(`chat:${chatRoomId}`, 0, 99);
+
+            // Return the message object for immediate emission
+            return messageObj;
         } catch (error) {
             console.error('Error saving message:', error);
+            throw error; // Propagate error to caller
         }
     }
 
     async getChatHistory(chatRoomId) {
         try {
-            // Get messages from Redis
-            const messages = await redisClient.lRange(`chat:${chatRoomId}`, 0, -1);
-            return messages.map(msg => JSON.parse(msg));
+            console.log('Getting chat history for room:', chatRoomId);
+            
+            // Try Redis first
+            const redisMessages = await redisClient.lRange(`chat:${chatRoomId}`, 0, -1);
+            if (redisMessages && redisMessages.length > 0) {
+                console.log('Retrieved messages from Redis');
+                return redisMessages.map(msg => JSON.parse(msg));
+            }
+
+            // If Redis is empty, try MongoDB
+            console.log('No messages in Redis, checking MongoDB');
+            const mongoMessages = await Message.find({ chatRoomId })
+                .sort({ timestamp: -1 })
+                .limit(100);
+            
+            if (mongoMessages && mongoMessages.length > 0) {
+                console.log('Retrieved messages from MongoDB');
+                // Store in Redis for future access
+                const messages = mongoMessages.map(msg => ({
+                    senderId: msg.senderId,
+                    message: msg.message,
+                    timestamp: msg.timestamp
+                }));
+                
+                // Store in Redis
+                for (const msg of messages) {
+                    await redisClient.lPush(`chat:${chatRoomId}`, JSON.stringify(msg));
+                }
+                await redisClient.lTrim(`chat:${chatRoomId}`, 0, 99);
+                
+                return messages;
+            }
+
+            console.log('No messages found in either Redis or MongoDB');
+            return [];
         } catch (error) {
             console.error('Error getting chat history:', error);
             return [];
