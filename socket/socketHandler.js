@@ -2,14 +2,14 @@ import { MatchingService } from './matchingService.js';
 
 export class SocketHandler {
     constructor(io) {
-
         this.io = io;
         this.matchingService = new MatchingService(io);
+        this.activeUsers = new Map(); // userId -> socketId
         this.setupSocketHandlers();
     }
 
     setupSocketHandlers() {
-         console.log("setupSocketHandlers CALLED"); 
+        console.log("setupSocketHandlers CALLED"); 
         this.io.on('connection', (socket) => {
             console.log('User connected:', socket.id);
 
@@ -17,7 +17,14 @@ export class SocketHandler {
             socket.on('join', (userId) => {
                 socket.userId = userId;
                 socket.join(userId);
+                this.activeUsers.set(userId, socket.id);
                 console.log(`User ${userId} joined with socket ID ${socket.id}`);
+                console.log('Active users:', Array.from(this.activeUsers.entries()));
+            });
+
+            // Heartbeat handling
+            socket.on('ping', () => {
+                socket.emit('pong');
             });
 
             // Start searching event
@@ -51,9 +58,17 @@ export class SocketHandler {
                     // Save message to database and get the saved message
                     const savedMessage = await this.matchingService.saveMessage(chatRoomId, senderId, receiverId, message);
                     
+                    // Get receiver's socket ID
+                    const receiverSocketId = this.activeUsers.get(receiverId);
+                    if (!receiverSocketId) {
+                        console.log(`Receiver ${receiverId} is not currently connected`);
+                    }
+                    
                     // Emit message to both sender and receiver
                     this.io.to(senderId).emit('receiveMessage', savedMessage);
-                    this.io.to(receiverId).emit('receiveMessage', savedMessage);
+                    if (receiverSocketId) {
+                        this.io.to(receiverId).emit('receiveMessage', savedMessage);
+                    }
                     
                     console.log('Message emitted to both users');
                 } catch (error) {
@@ -77,6 +92,9 @@ export class SocketHandler {
             socket.on('disconnect', (reason) => {
                 if (socket.userId) {
                     console.log(`User ${socket.userId} disconnected. Reason: ${reason}`);
+                    // Remove from active users
+                    this.activeUsers.delete(socket.userId);
+                    console.log('Updated active users:', Array.from(this.activeUsers.entries()));
                     // Only stop searching, don't remove from active users
                     this.matchingService.stopSearching(socket.userId);
                 }
