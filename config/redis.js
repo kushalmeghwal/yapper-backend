@@ -1,12 +1,11 @@
 import Redis from 'ioredis';
-
-// Redis URL from env
+console.log("✅ Server code started");
 const redis = new Redis(process.env.REDIS_URL, {
-  tls: {} // Required for Upstash SSL
+  tls: {} // Required for Redis Cloud like Upstash (SSL enforced)
 });
-
+console.log("🔥 Attempting Redis connection");
 redis.on('connect', () => {
-  console.log('✅ Redis connected successfully');
+  console.log('✅ Connected to Redis');
 });
 
 redis.on('error', (err) => {
@@ -14,4 +13,3 @@ redis.on('error', (err) => {
 });
 
 export default redis;
-
