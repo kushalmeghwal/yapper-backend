@@ -2,60 +2,57 @@ import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
-// Import database file
 import connectDB from './config/database.js';
-import {User} from './models/userModel.js';  // Import User model to fetch nicknames
-
-// Import routes
+import { User } from './models/userModel.js';
 import userRoute from './routes/userRoute.js';
-
-// Import dotenv for environment variables
 import 'dotenv/config';
+import { SocketHandler } from "./socket/socketHandler.js";
 
-import {SocketHandler} from "./socket/socketHandler.js";
-connectDB;
+const startServer = async () => {
+  await connectDB(); // ✅ Await the DB connection
 
-// Create Express app
-const app = express();
-app.enable('trust proxy');
-const server = createServer(app);
+  // Create Express app
+  const app = express();
+  app.enable('trust proxy');
+  const server = createServer(app);
 
-// Configure Socket.IO with proper CORS and options
-const io = new Server(server, {
-  cors: {
-    origin: true, // Allow all origins for mobile app
-    methods: ["GET", "POST"],
-    credentials: true,
-    allowedHeaders: ["*"]
-  },
-  transports: ['websocket', 'polling'],
-  pingTimeout: 60000,
-  pingInterval: 25000,
-  allowEIO3: true
-});
+  // Configure Socket.IO
+  const io = new Server(server, {
+    cors: {
+      origin: true,
+      methods: ["GET", "POST"],
+      credentials: true,
+      allowedHeaders: ["*"]
+    },
+    transports: ['websocket', 'polling'],
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    allowEIO3: true
+  });
 
-// Initialize Socket Handler
-new SocketHandler(io);
+  // Initialize Socket Handler
+  console.log("About to initialize socket handler");
+  new SocketHandler(io);
+  console.log("Socket handler initialized");
 
-// Port
-const PORT = process.env.PORT || 3000;
+  const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors({
-  origin: true, // Allow all origins for mobile app
-  credentials: true
-}));
-app.use(express.json());
+  // Middleware
+  app.use(cors({ origin: true, credentials: true }));
+  app.use(express.json());
 
-// Mount routes
-app.use('/api', userRoute);
+  // Routes
+  app.use('/api', userRoute);
 
-// Default route
-app.get('/', (req, res) => {
+  // Default route
+  app.get('/', (req, res) => {
     res.send('Hello, server is running!');
-});
+  });
 
-// Start the server
-server.listen(PORT, () => {
+  // Start server
+  server.listen(PORT, () => {
     console.log(`Server is running successfully on port ${PORT}`);
-});
+  });
+};
+
+startServer(); // ✅ Call the async function
