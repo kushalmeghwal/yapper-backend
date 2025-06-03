@@ -56,6 +56,30 @@ export class MatchingService {
     constructor(io) {
         this.io = io;
         this.searchingUsers = new Map(); // userId -> { mood, type, socketId }
+        this.onlineUsers = new Map(); // userId -> socketId
+    }
+
+    // Track user online status
+    setUserOnline(userId, socketId) {
+        this.onlineUsers.set(userId, socketId);
+        console.log(`User ${userId} is now online with socket ${socketId}`);
+        console.log('Current online users:', Array.from(this.onlineUsers.entries()));
+    }
+
+    setUserOffline(userId) {
+        this.onlineUsers.delete(userId);
+        console.log(`User ${userId} is now offline`);
+        console.log('Current online users:', Array.from(this.onlineUsers.entries()));
+    }
+
+    // Check if user is online
+    isUserOnline(userId) {
+        return this.onlineUsers.has(userId);
+    }
+
+    // Get user's socket ID
+    getUserSocketId(userId) {
+        return this.onlineUsers.get(userId);
     }
 
     async startSearching(userId, type, mood, socketId) {
