@@ -6,7 +6,7 @@ export class SocketHandler {
         this.io = io;
         this.matchingService = new MatchingService();
         this.activeUsers = new Map(); // userId -> socketId
-        this.initializeSocketHandlers();
+        this.setupSocketHandlers();
     }
 
     setupSocketHandlers() {
