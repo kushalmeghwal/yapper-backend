@@ -80,9 +80,9 @@ export class SocketHandler {
                     const savedMessage = await this.matchingService.saveMessage(chatRoomId, senderId, receiverId, message, timestamp);
                     console.log('Message saved:', savedMessage);
                     
-                    // Get socket IDs for both sender and receiver
-                    const senderSocketId = this.activeUsers.get(senderId);
-                    const receiverSocketId = this.activeUsers.get(receiverId);
+                    // Get socket IDs using matching service
+                    const senderSocketId = this.matchingService.getUserSocketId(senderId);
+                    const receiverSocketId = this.matchingService.getUserSocketId(receiverId);
 
                     // Send confirmation to sender
                     if (senderSocketId) {
