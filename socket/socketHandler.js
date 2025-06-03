@@ -1,10 +1,12 @@
 import { MatchingService } from './matchingService.js';
+import { User } from '../models/userModel.js';
 
 export class SocketHandler {
     constructor(io) {
         this.io = io;
         this.matchingService = new MatchingService(io);
         this.activeUsers = new Map(); // userId -> socketId
+        this.messageDeliveryStatus = new Map();
         this.setupSocketHandlers();
     }
 
@@ -47,34 +49,54 @@ export class SocketHandler {
             });
 
             // Send message event
-            socket.on('sendMessage', async ({ chatRoomId, senderId, receiverId, message }) => {
-                if (!chatRoomId || !senderId || !receiverId || !message) {
-                    console.error('Invalid message data:', { chatRoomId, senderId, receiverId, message });
+            socket.on('sendMessage', async ({ chatRoomId, senderId, receiverId, message, timestamp }) => {
+                if (!chatRoomId || !senderId || !receiverId || !message || !timestamp) {
+                    console.error('Invalid message data:', { chatRoomId, senderId, receiverId, message, timestamp });
                     return;
                 }
                 console.log(`Message from ${senderId} to ${receiverId}: ${message}`);
                 
                 try {
-                    // Save message to database and get the saved message
-                    const savedMessage = await this.matchingService.saveMessage(chatRoomId, senderId, receiverId, message);
+                    // Generate unique message ID
+                    const messageId = `${chatRoomId}_${senderId}_${timestamp}`;
                     
+                    // Check if message was already processed
+                    if (this.messageDeliveryStatus.has(messageId)) {
+                        console.log('Duplicate message detected, ignoring:', messageId);
+                        return;
+                    }
+
+                    // Mark message as processed
+                    this.messageDeliveryStatus.set(messageId, true);
+                    
+                    // Clean up old message statuses (keep last 1000)
+                    if (this.messageDeliveryStatus.size > 1000) {
+                        const keysToDelete = Array.from(this.messageDeliveryStatus.keys()).slice(0, this.messageDeliveryStatus.size - 1000);
+                        keysToDelete.forEach(key => this.messageDeliveryStatus.delete(key));
+                    }
+
+                    // Save message to database and get the saved message
+                    const savedMessage = await this.matchingService.saveMessage(chatRoomId, senderId, receiverId, message, timestamp);
+                    console.log('Message saved:', savedMessage);
+
                     // Get receiver's socket ID
                     const receiverSocketId = this.activeUsers.get(receiverId);
-                    if (!receiverSocketId) {
-                        console.log(`Receiver ${receiverId} is not currently connected`);
-                    }
-                    
-                    // Emit message to both sender and receiver
-                    this.io.to(senderId).emit('receiveMessage', savedMessage);
+                    const senderSocketId = this.activeUsers.get(senderId);
+
+                    // Emit to receiver if online
                     if (receiverSocketId) {
-                        this.io.to(receiverId).emit('receiveMessage', savedMessage);
+                        this.io.to(receiverSocketId).emit('receiveMessage', savedMessage);
+                        console.log('Message sent to receiver:', receiverId);
                     }
-                    
-                    console.log('Message emitted to both users');
+
+                    // Emit to sender for confirmation
+                    if (senderSocketId) {
+                        this.io.to(senderSocketId).emit('receiveMessage', savedMessage);
+                        console.log('Message confirmation sent to sender:', senderId);
+                    }
                 } catch (error) {
                     console.error('Error handling message:', error);
-                    // Notify sender about the error
-                    socket.emit('messageError', { error: 'Failed to send message' });
+                    socket.emit('messageError', { message: 'Failed to send message' });
                 }
             });
 
