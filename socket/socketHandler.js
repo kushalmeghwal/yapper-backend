@@ -9,7 +9,8 @@ export class SocketHandler {
         this.initializeSocketHandlers();
     }
 
-    initializeSocketHandlers() {
+    setupSocketHandlers() {
+        console.log("setupSocketHandlers called"); 
         this.io.on('connection', (socket) => {
             console.log('New client connected:', socket.id);
 
