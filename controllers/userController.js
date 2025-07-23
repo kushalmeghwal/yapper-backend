@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import 'dotenv/config';
 
+
 // User Signup
 export const signUp=async (req, res)=> {
     try {
@@ -108,4 +109,67 @@ export const login=async (req, res)=> {
     }
 }
 
+// Called when user logs in via Firebase and fills nickname + username
+export const updateOrCreateFirebaseUser = async (req, res) => {
+  try {
+    const { nickname, username } = req.body;
+    const firebaseUser = req.firebaseUser; // Comes from middleware
+    const firebaseUid = firebaseUser.uid;
 
+    if (!nickname || !username) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nickname and username are required',
+      });
+    }
+
+    // Check if a user with this firebaseUid exists
+    let user = await User.findOne({ firebaseUid });
+
+    if (!user) {
+      // Check if username already taken
+      const usernameTaken = await User.findOne({ username });
+      if (usernameTaken) {
+        return res.status(400).json({
+          success: false,
+          message: 'Username already taken',
+        });
+      }
+
+      // Create new user
+      const hashedDummyPassword = await bcrypt.hash("firebaseuser", 10);
+      user = await User.create({
+        nickname,
+        username,
+        password: hashedDummyPassword,
+        firebaseUid
+      });
+
+    } else {
+      // Update existing user
+      user.nickname = nickname;
+      user.username = username;
+      await user.save();
+    }
+
+    const token = jwt.sign(
+      { userId: user._id, nickname: user.nickname },
+      process.env.JWT_SECRET,
+      { expiresIn: "3d" }
+    );
+   console.log("user created  or updated via firebase and update nickname and username successfully");
+    return res.status(200).json({
+      success: true,
+      message: 'User profile updated successfully',
+      token,
+      userId: user._id,
+    });
+
+  } catch (err) {
+    console.error("Update Firebase User Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: 'Something went wrong while updating user',
+    });
+  }
+}

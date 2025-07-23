@@ -1,45 +1,5 @@
-import { createClient } from 'redis';
 import mongoose from 'mongoose';
 import { User } from '../models/userModel.js';
-
-// Redis client for real-time matching
-let redisClient;
-try {    
-    redisClient = createClient({
-        url: process.env.REDIS_URL,
-        socket: {
-            tls: true,
-            rejectUnauthorized: false
-        }
-    });
-
-    // Handle Redis connection events
-    redisClient.on('error', (err) => {
-        console.error('Redis Client Error:', err.message);
-        console.error('Error details:', err);
-    });
-
-    redisClient.on('connect', () => {
-        console.log('Successfully connected to Redis');
-    });
-
-    redisClient.on('end', () => {
-        console.log('Redis connection ended');
-    });
-
-    // Connect to Redis
-    (async () => {
-        try {
-            await redisClient.connect();
-        } catch (error) {
-            console.error('Failed to connect to Redis:', error.message);
-            console.error('Connection error details:', error);
-        }
-    })();
-} catch (error) {
-    console.error('Redis configuration error:', error.message);
-    console.error('Configuration error details:', error);
-}
 
 // MongoDB Message Schema
 const messageSchema = new mongoose.Schema({
@@ -197,13 +157,6 @@ export class MatchingService {
             await newMessage.save();
             console.log('Message saved to MongoDB');
             
-            // Store in Redis for real-time access
-            await redisClient.lPush(`chat:${chatRoomId}`, JSON.stringify(messageObj));
-            console.log('Message saved to Redis');
-            
-            // Keep only last 100 messages in Redis
-            await redisClient.lTrim(`chat:${chatRoomId}`, 0, 99);
-
             // Return the message object for immediate emission
             return messageObj;
         } catch (error) {
@@ -216,38 +169,21 @@ export class MatchingService {
         try {
             console.log('Getting chat history for room:', chatRoomId);
             
-            // Try Redis first
-            const redisMessages = await redisClient.lRange(`chat:${chatRoomId}`, 0, -1);
-            if (redisMessages && redisMessages.length > 0) {
-                console.log('Retrieved messages from Redis');
-                return redisMessages.map(msg => JSON.parse(msg));
-            }
-
-            // If Redis is empty, try MongoDB
-            console.log('No messages in Redis, checking MongoDB');
+            // Try MongoDB
             const mongoMessages = await Message.find({ chatRoomId })
                 .sort({ timestamp: -1 })
                 .limit(100);
             
             if (mongoMessages && mongoMessages.length > 0) {
                 console.log('Retrieved messages from MongoDB');
-                // Store in Redis for future access
-                const messages = mongoMessages.map(msg => ({
+                return mongoMessages.map(msg => ({
                     senderId: msg.senderId,
                     message: msg.message,
                     timestamp: msg.timestamp
                 }));
-                
-                // Store in Redis
-                for (const msg of messages) {
-                    await redisClient.lPush(`chat:${chatRoomId}`, JSON.stringify(msg));
-                }
-                await redisClient.lTrim(`chat:${chatRoomId}`, 0, 99);
-                
-                return messages;
             }
 
-            console.log('No messages found in either Redis or MongoDB');
+            console.log('No messages found in MongoDB');
             return [];
         } catch (error) {
             console.error('Error getting chat history:', error);
