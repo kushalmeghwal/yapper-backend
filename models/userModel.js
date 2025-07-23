@@ -16,11 +16,15 @@ const userSchema = new mongoose.Schema({
         required: true,
         trim: true
     },
-     // img,
     type: {
         type: String,
         default: "user"
-    }
+    },
+    firebaseUid: { 
+        type: String,
+        unique: true,
+        sparse: true 
+    }, 
 });
 
 export const User = mongoose.model('users', userSchema);

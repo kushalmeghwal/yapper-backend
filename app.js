@@ -8,7 +8,7 @@ import 'dotenv/config';
 import { SocketHandler } from "./socket/socketHandler.js";
 
 const startServer = async () => {
-  await connectDB(); // ✅ Await the DB connection
+  await connectDB();
 
   // Create Express app
   const app = express();
@@ -18,7 +18,7 @@ const startServer = async () => {
   // Configure Socket.IO
   const io = new Server(server, {
     cors: {
-      origin: true,
+      origin: "*",
       methods: ["GET", "POST"],
       credentials: true,
       allowedHeaders: ["*"]
@@ -53,4 +53,4 @@ const startServer = async () => {
   });
 };
 
-startServer(); // ✅ Call the async function
+startServer(); 
