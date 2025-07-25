@@ -33,25 +33,5 @@ const messageSchema = new mongoose.Schema({
     }
 });
 
-const chatRoomSchema = new mongoose.Schema({
-    chatRoomId: {
-        type: String,
-        required: true,
-        unique: true
-    },
-    participants: [{
-        type: String,
-        required: true
-    }],
-    createdAt: {
-        type: Date,
-        default: Date.now
-    },
-    lastMessage: {
-        type: Date,
-        default: Date.now
-    }
-});
 
-export const Message = mongoose.model('Message', messageSchema);
-export const ChatRoom = mongoose.model('ChatRoom', chatRoomSchema);
+export const Message = mongoose.models.Message || mongoose.model('Message', messageSchema);
