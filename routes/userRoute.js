@@ -9,4 +9,7 @@ router.post('/login', login);
 // Firebase Auth Route
 router.post('/firebase/update-profile', authenticateFirebase, updateOrCreateFirebaseUser);
 
+
 export default router;
+
+

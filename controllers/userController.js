@@ -2,7 +2,7 @@ import {User} from '../models/userModel.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import 'dotenv/config';
-
+import { ChatRoom } from "../models/chatRoomModel.js";
 
 // User Signup
 export const signUp=async (req, res)=> {
@@ -134,6 +134,7 @@ export const updateOrCreateFirebaseUser = async (req, res) => {
           success: false,
           message: 'Username already taken',
         });
+     
       }
 
       // Create new user
@@ -173,3 +174,5 @@ export const updateOrCreateFirebaseUser = async (req, res) => {
     });
   }
 }
+
+
