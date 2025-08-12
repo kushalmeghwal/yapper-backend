@@ -1,6 +1,6 @@
 # 🗨️ Yapper
 
-Yapper is a real-time chat application with user authentication, profile management, and instant messaging.  
+Yapper is a real-time stranger chat application with user authentication, profile management, and instant messaging made specially for generation alpha.  
 It uses **Firebase Authentication** for secure login and **Socket.io** for live chat, making it fast and interactive.
 
 ---
