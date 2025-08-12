@@ -25,7 +25,7 @@ It uses **Firebase as well as Custom Backend Authentication** for secure login a
 
 ---
 
-## Backend Repository
+## Frontend Repository
 
 You can find the frontend code here: [Yapper-Frontend](https://github.com/kushalmeghwal/yapper-frontend)
 
