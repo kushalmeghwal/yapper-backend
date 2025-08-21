@@ -90,7 +90,15 @@ export const login=async (req, res)=> {
             process.env.JWT_SECRET, // Secret key
             { expiresIn: "1d" } // Expiry
         );
-
+        
+        // Send token in HTTP-only cookie
+        res.cookie('token', token, {
+            httpOnly: true,  // Prevent JS access (XSS protection)
+            secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+            sameSite: 'strict', // CSRF protection
+            maxAge: 24 * 60 * 60 * 1000 // 1 day
+        });
+        
 
         console.log('user login successfully');
         return res.status(200).json({
