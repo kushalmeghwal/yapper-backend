@@ -3,7 +3,6 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import 'dotenv/config';
 import { ChatRoom } from "../models/chatRoomModel.js";
-
 // User Signup
 export const signUp=async (req, res)=> {
     try {
@@ -86,7 +85,7 @@ export const login=async (req, res)=> {
 
         // Generate JWT token
         const token = jwt.sign(
-            { userId: user._id, nickname: user.nickname }, // Payload
+            { userId: user._id, nickname: user.nickname, username:user.username}, // Payload
             process.env.JWT_SECRET, // Secret key
             { expiresIn: "1d" } // Expiry
         );
@@ -95,7 +94,7 @@ export const login=async (req, res)=> {
         res.cookie('token', token, {
             httpOnly: true,  // Prevent JS access (XSS protection)
             secure: process.env.NODE_ENV === 'production', // HTTPS only in production
-            sameSite: 'strict', // CSRF protection
+            sameSite: 'lax', // CSRF protection
             maxAge: 24 * 60 * 60 * 1000 // 1 day
         });
         
@@ -116,22 +115,50 @@ export const login=async (req, res)=> {
         });
     }
 }
+export const profile=async (req,res)=>{
+    
+}
+
+export const me=async (req, res) => {
+  try {
+    const token = req.cookies.token;
+    if (!token) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    return res.json({ userId: decoded.userId, nickname: decoded.nickname , username:decoded.username});
+  } catch (err) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+}
+
+
 
 // Called when user logs in via Firebase and fills nickname + username
 export const updateOrCreateFirebaseUser = async (req, res) => {
   try {
     const { nickname, username } = req.body;
-    const firebaseUser = req.firebaseUser; // Comes from middleware
-    const firebaseUid = firebaseUser.uid;
-
+       let firebaseUid; 
+      if (req.firebaseUser) {
+      firebaseUid = req.firebaseUser.uid;   // mobile (Firebase token)
+    } else if (req.user) {
+      firebaseUid = req.user.id;            // web (JWT from cookie)
+    }
+    if (!firebaseUid) {
+      return res.status(401).json({
+        success: false,
+        message: "No valid user found in request",
+      });
+    }
     if (!nickname || !username) {
       return res.status(400).json({
         success: false,
-        message: 'Nickname and username are required',
+        message: "Nickname and username are required",
       });
     }
 
-    // Check if a user with this firebaseUid exists
+    // Check if user exists by firebaseUid
     let user = await User.findOne({ firebaseUid });
 
     if (!user) {
@@ -140,9 +167,8 @@ export const updateOrCreateFirebaseUser = async (req, res) => {
       if (usernameTaken) {
         return res.status(400).json({
           success: false,
-          message: 'Username already taken',
+          message: "Username already taken",
         });
-     
       }
 
       // Create new user
@@ -151,9 +177,8 @@ export const updateOrCreateFirebaseUser = async (req, res) => {
         nickname,
         username,
         password: hashedDummyPassword,
-        firebaseUid
+        firebaseUid,
       });
-
     } else {
       // Update existing user
       user.nickname = nickname;
@@ -161,26 +186,89 @@ export const updateOrCreateFirebaseUser = async (req, res) => {
       await user.save();
     }
 
+    // Create your own JWT
     const token = jwt.sign(
       { userId: user._id, nickname: user.nickname },
       process.env.JWT_SECRET,
       { expiresIn: "3d" }
     );
-   console.log("user created  or updated via firebase and update nickname and username successfully");
-    return res.status(200).json({
-      success: true,
-      message: 'User profile updated successfully',
-      token,
-      userId: user._id,
-    });
 
+    console.log("User created via Firebase successfully");
+
+    // Detect if request is from web or mobile
+    const userAgent = req.headers["user-agent"] || "";
+    const isWeb = userAgent.includes("Mozilla"); // crude but works for browsers
+
+    if (isWeb) {
+      // 👉 Web: send token as HttpOnly cookie
+      res.cookie("token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 3 * 24 * 60 * 60 * 1000, // 3 days
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "User profile updated successfully (web)",
+        userId: user._id,
+      });
+    } else {
+      // 👉 Mobile App: return token in JSON
+      return res.status(200).json({
+        success: true,
+        message: "User profile updated successfully (app)",
+        token,
+        userId: user._id,
+      });
+    }
   } catch (err) {
     console.error("Update Firebase User Error:", err);
     return res.status(500).json({
       success: false,
-      message: 'Something went wrong while updating user',
+      message: "Something went wrong while updating user",
     });
   }
-}
+};
 
 
+
+export const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user.uid; // comes from Firebase via authenticateFirebase
+    const { nickname, username } = req.body;
+
+    if (!nickname || !username) {
+      return res.status(400).json({ message: "Nickname and Username are required" });
+    }
+
+    // check if username is already taken by another user
+    const existingUser = await User.findOne({
+      username,
+      firebaseUid: { $ne: userId } // check against firebaseUid instead of _id
+    });
+
+    if (existingUser) {
+      return res.status(400).json({ message: "Username already taken" });
+    }
+
+    // update user profile
+    const updatedUser = await User.findOneAndUpdate(
+      { firebaseUid: userId }, // match by firebaseUid
+      { nickname, username },
+      { new: true }
+    ).select("-password");
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({
+      message: "Profile updated successfully",
+      user: updatedUser,
+    });
+  } catch (error) {
+    console.error("Update Profile Error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
