@@ -1,285 +1,274 @@
-import mongoose from "mongoose";
+// socket/socketHandler.js
 import { MatchingService } from "./matchingService.js";
 import { ChatRoom } from "../models/chatRoomModel.js";
-import { Message } from "../models/messageModel.js";
 import { User } from "../models/userModel.js";
 
 export class SocketHandler {
   constructor(io) {
     this.io = io;
     this.matchingService = new MatchingService(io);
-    this.activeUsers = new Map(); // userId -> socketId
-    this.messageDeliveryStatus = new Map(); // Track message delivery status
-    this.setupSocketHandlers();
+
+    // userId -> socket (only last connected socket)
+    this.socketsByUser = new Map();
+
+    // online users set
+    this.onlineUsers = new Set();
+
+    // searching users: userId -> { type, mood, socket, timeout }
+    this.searchingUsers = new Map();
+
+    // message dedupe
+    this.messageDeliveryStatus = new Map();
+
+    console.log("setupSocketHandlers CALLED");
+
+    this.io.on("connection", (socket) => this.registerSocketEvents(socket));
   }
 
-  async createOrGetChatRoom(user1Id, user2Id) {
-    try {
-      const existingRoom = await ChatRoom.findOne({
-        participants: { $all: [user1Id, user2Id], $size: 2 },
-      });
+  logUsers() {
+    console.log("Online Users:", Array.from(this.onlineUsers.values()));
+    console.log("Searching Users:", Array.from(this.searchingUsers.keys()));
+  }
 
-      if (existingRoom) {
-        return existingRoom;
+  handleJoin(socket, userId) {
+    if (!userId) return;
+    socket.userId = userId;
+
+    // store socket reference (overwrite if user reconnects)
+    this.socketsByUser.set(userId, socket);
+
+    this.onlineUsers.add(userId);
+    console.log(`User ${userId} joined with socket ${socket.id}`);
+    this.logUsers();
+  }
+
+  handleUserOnline(socket, userId) {
+    if (!userId) return;
+    socket.userId = userId;
+    this.socketsByUser.set(userId, socket);
+    this.onlineUsers.add(userId);
+
+    console.log(`User with userId: ${userId} is online`);
+    this.logUsers();
+  }
+
+  async handleJoinRoom(socket, { chatRoomId, userId }) {
+    if (!chatRoomId || !userId) return;
+
+    try {
+      const chatRoom = await ChatRoom.findOne({ chatRoomId }).lean();
+      if (!chatRoom || !chatRoom.participants.includes(userId)) {
+        console.warn("joinRoom denied:", { chatRoomId, userId });
+        return;
       }
 
-      const newRoom = await ChatRoom.create({
-        participants: [user1Id, user2Id],
-      });
-
-      return newRoom;
+      // Prevent multiple joins
+      if (!socket.rooms.has(chatRoomId)) {
+        socket.join(chatRoomId);
+        console.log(`User ${userId} joined chatRoom ${chatRoomId}`);
+      }
     } catch (err) {
-      console.error("Error in createOrGetChatRoom:", err);
-      throw err;
+      console.error("joinRoom error:", err);
     }
   }
 
+  async handleLeaveRoom(socket, { chatRoomId, userId }) {
+    if (!chatRoomId || !userId) return;
+    try {
+      const chatRoom = await ChatRoom.findOne({ chatRoomId }).lean();
+      if (!chatRoom || !chatRoom.participants.includes(userId)) return;
 
-  setupSocketHandlers() {
-    console.log("setupSocketHandlers CALLED");
-    this.io.on("connection", (socket) => {
-      console.log("User connected:", socket.id);
+      socket.leave(chatRoomId);
+      this.onlineUsers.add(userId);
 
-      socket.on("join", (userId) => {
-        socket.userId = userId;
-        socket.join(userId);
-        this.activeUsers.set(userId, socket);
-        this.matchingService.setUserOnline(userId, socket.id);
-        console.log(`User ${userId} joined with socket ID ${socket.id}`);
-        console.log("Active users:", Array.from(this.activeUsers.entries()));
-      });
-      
-      // ✅ Handle userOnline
-      socket.on('userOnline', async (userId) => {
-        socket.userId = userId;
-        console.log(`User ${userId} is online with socket ${socket.id}`);
-   
-        
-        if (this.activeUsers.has(userId)) {
-          const oldSocket = this.activeUsers.get(userId);
-          if (oldSocket.id !== socket.id) {
-            oldSocket.disconnect(); // disconnect old socket
-          }
-        }
-        this.activeUsers.set(userId, socket);
-        this.matchingService.setUserOnline(userId,socket.id);
-        socket.userId = userId;
-        console.log(`User ${userId} marked online via userOnline event`);
-        console.log("Active users:", Array.from(this.activeUsers.entries()));
-      });
-
-   socket.on('join_chat', async ({ chatRoomId, userId }) => {
-  if (!chatRoomId || !userId) {
-    console.error("join_chat: Missing chatRoomId or userId");
-    return;
+      console.log(`User ${userId} left chatRoom ${chatRoomId}`);
+      this.logUsers();
+    } catch (err) {
+      console.error("leaveRoom error:", err);
+    }
   }
 
-  try {
-    const chatRoom = await ChatRoom.findById(chatRoomId);
-    if (!chatRoom) {
-      console.error(`join_chat: Chat room not found for ID ${chatRoomId}`);
-      return;
+  handleStartSearching(socket, { userId, type, mood }) {
+    if (!userId || !type || !mood) return;
+    console.log(`Search request from ${userId}: { type: ${type}, mood: ${mood} }`);
+
+    this.socketsByUser.set(userId, socket);
+    this.onlineUsers.delete(userId);
+
+    if (this.searchingUsers.has(userId)) {
+      clearTimeout(this.searchingUsers.get(userId).timeout);
+      this.searchingUsers.delete(userId);
     }
 
-    if (!chatRoom.participants.includes(userId)) {
-      console.warn(`join_chat: User ${userId} is not a participant of chatRoom ${chatRoomId}`);
-      return;
-    }
+    const timeout = setTimeout(() => {
+      if (this.searchingUsers.has(userId)) {
+        this.searchingUsers.delete(userId);
+        this.onlineUsers.add(userId);
+        const s = this.socketsByUser.get(userId);
+        if (s) s.emit("searchTimeout", { message: "No match found, back online." });
+        console.log(`User ${userId} search timed out, moved back to online.`);
+        this.logUsers();
+      }
+    }, 60 * 1000);
 
-    socket.join(chatRoomId);
-    console.log(`User ${userId} joined chatRoom ${chatRoomId}`);
-  } catch (err) {
-    console.error("join_chat error:", err);
+    this.searchingUsers.set(userId, { type, mood, socket, timeout });
+    this.matchUsers();
+    this.logUsers();
   }
-});
 
-socket.on('leave_chat', async ({ chatRoomId, userId }) => {
-  if (!chatRoomId || !userId) {
-    console.error("leave_chat: Missing chatRoomId or userId");
-    return;
+  handleStopSearching(userId) {
+    if (!userId) return;
+    if (this.searchingUsers.has(userId)) {
+      const { timeout } = this.searchingUsers.get(userId);
+      clearTimeout(timeout);
+      this.searchingUsers.delete(userId);
+    }
+    if (this.socketsByUser.has(userId)) this.onlineUsers.add(userId);
+
+    console.log(`User ${userId} stopped searching and is back online.`);
+    this.logUsers();
   }
 
-  try {
-    const chatRoom = await ChatRoom.findById(chatRoomId);
-    if (!chatRoom) {
-      console.error(`leave_chat: Chat room not found for ID ${chatRoomId}`);
-      return;
-    }
+  async matchUsers() {
+    const entries = Array.from(this.searchingUsers.entries());
+    if (entries.length < 2) return;
 
-    if (!chatRoom.participants.includes(userId)) {
-      console.warn(`leave_chat: User ${userId} is not a participant of chatRoom ${chatRoomId}`);
-      return;
-    }
+    for (let i = 0; i < entries.length - 1; i++) {
+      const [idA, aData] = entries[i];
+      for (let j = i + 1; j < entries.length; j++) {
+        const [idB, bData] = entries[j];
 
-    socket.leave(chatRoomId);
-    console.log(`User ${userId} left chatRoom ${chatRoomId}`);
-  } catch (err) {
-    console.error("leave_chat error:", err);
-  }
-});
+        if (aData.mood === bData.mood && aData.type !== bData.type) {
+          clearTimeout(aData.timeout);
+          clearTimeout(bData.timeout);
 
+          const chatRoom = await this.matchingService.getOrCreateChatRoom(idA, idB);
+          const chatRoomId = chatRoom.chatRoomId;
 
-      socket.on("ping", () => {
-        socket.emit("pong");
-      });
+          const nicknameA = await this.matchingService.getUserNickname(idA);
+          const nicknameB = await this.matchingService.getUserNickname(idB);
 
-      socket.on("startSearching", ({ userId, type, mood }) => {
-        console.log(`Search request from user ${userId}:`, { type, mood });
-        if (!userId || !type || !mood) {
-          console.error("Invalid search request:", { userId, type, mood });
+          // emit match to both
+          aData.socket.emit("matchFound", { chatRoomId, receiverId: idB, receiverNickname: nicknameB });
+          bData.socket.emit("matchFound", { chatRoomId, receiverId: idA, receiverNickname: nicknameA });
+
+          // update states
+          this.onlineUsers.delete(idA);
+          this.onlineUsers.delete(idB);
+          this.searchingUsers.delete(idA);
+          this.searchingUsers.delete(idB);
+
+          console.log(`Matched ${idA} with ${idB} in ${chatRoomId}`);
+          this.logUsers();
           return;
         }
-        this.matchingService.startSearching(userId, type, mood, socket.id);
-      });
+      }
+    }
+  }
 
-      socket.on("stopSearching", (userId) => {
-        if (!userId) {
-          console.error("Invalid stop search request: userId is missing");
-          return;
-        }
-        this.matchingService.stopSearching(userId);
-      });
+  async handleSendMessage(socket, { chatRoomId, senderId, receiverId, message, timestamp }) {
+    if (!chatRoomId || !senderId || !receiverId || !message) return;
 
-      socket.on(
-        "sendMessage",
-        async ({ chatRoomId, senderId, receiverId, message, timestamp }) => {
-          if (
-            !chatRoomId ||
-            !senderId ||
-            !receiverId ||
-            !message ||
-            !timestamp
-          ) {
-            console.error("Invalid message data:", {
-              chatRoomId,
-              senderId,
-              receiverId,
-              message,
-              timestamp,
-            });
-            return;
-          }
+    try {
+      const msgTimestamp = timestamp || new Date().toISOString();
+      const messageId = `${chatRoomId}_${senderId}_${msgTimestamp}`;
+      if (this.messageDeliveryStatus.has(messageId)) return;
+      this.messageDeliveryStatus.set(messageId, true);
 
-          console.log(`Message from ${senderId} to ${receiverId}: ${message}`);
+      // Clean old entries
+      if (this.messageDeliveryStatus.size > 1000) {
+        const keysToDelete = Array.from(this.messageDeliveryStatus.keys()).slice(0, this.messageDeliveryStatus.size - 1000);
+        keysToDelete.forEach((k) => this.messageDeliveryStatus.delete(k));
+      }
 
-          try {
-            const messageId = `${chatRoomId}_${senderId}_${timestamp}`;
+      // Save message
+      const savedMessage = await this.matchingService.saveMessage(chatRoomId, senderId, receiverId, message);
 
-            if (this.messageDeliveryStatus.has(messageId)) {
-              console.log("Duplicate message detected, ignoring:", messageId);
-              return;
-            }
+      // Emit to sender
+      const senderSocket = this.socketsByUser.get(senderId);
+      if (senderSocket) senderSocket.emit("receiveMessage", savedMessage);
 
-            this.messageDeliveryStatus.set(messageId, true);
+      // Emit to receiver (if different socket)
+      const receiverSocket = this.socketsByUser.get(receiverId);
+      if (receiverSocket && receiverSocket.id !== senderSocket?.id) {
+        receiverSocket.emit("receiveMessage", savedMessage);
+      }
 
-            if (this.messageDeliveryStatus.size > 1000) {
-              const keysToDelete = Array.from(
-                this.messageDeliveryStatus.keys()
-              ).slice(0, this.messageDeliveryStatus.size - 1000);
-              keysToDelete.forEach((key) =>
-                this.messageDeliveryStatus.delete(key)
-              );
-            }
+      console.log(`Message sent from ${senderId} to ${receiverId}: "${message}"`);
+    } catch (err) {
+      console.error("Error handling message:", err);
+      socket.emit("messageError", { error: "Failed to send message" });
+    }
+  }
 
-            const savedMessage = await this.matchingService.saveMessage(
-              chatRoomId,
-              senderId,
-              receiverId,
-              message,
-              timestamp
-            );
-            console.log("Message saved:", savedMessage);
+  async handleGetChatHistory(socket, { chatRoomId }) {
+    if (!chatRoomId) return;
+    try {
+      const messages = await this.matchingService.getChatHistory(chatRoomId);
+      socket.emit("chatHistory", [...messages].reverse());
+    } catch (err) {
+      console.error("getChatHistory error:", err);
+    }
+  }
 
-            const senderSocketId =
-              this.matchingService.getUserSocketId(senderId);
-            const receiverSocketId =
-              this.matchingService.getUserSocketId(receiverId);
-
-            if (senderSocketId) {
-              this.io.to(senderSocketId).emit("receiveMessage", savedMessage);
-              console.log("Message confirmation sent to sender:", senderId);
-            }
-
-            if (receiverSocketId) {
-              this.io.to(receiverSocketId).emit("receiveMessage", savedMessage);
-              console.log("Message delivered to receiver:", receiverId);
-            } else {
-              console.log(
-                `Receiver ${receiverId} is offline, message will be available when they come online`
-              );
-            }
-
-            console.log("Message handling completed");
-          } catch (error) {
-            console.error("Error handling message:", error);
-            socket.emit("messageError", { error: "Failed to send message" });
-          }
-        }
+  async handleGetAllChats(socket, { userId }) {
+    if (!userId) return;
+    try {
+      const chatRooms = await ChatRoom.find({ participants: userId }).lean();
+      const chats = await Promise.all(
+        chatRooms.map(async (room) => {
+          const lastMessage = await (await import("../models/messageModel.js")).Message
+            .findOne({ chatRoomId: room.chatRoomId })
+            .sort({ timestamp: -1 });
+          const receiverId = room.participants.find((p) => p !== userId);
+          const receiverNickname = await this.matchingService.getUserNickname(receiverId);
+          return {
+            chatRoomId: room.chatRoomId,
+            receiverId,
+            receiverNickname,
+            lastMessage: lastMessage?.message || "",
+            lastMessageTime: lastMessage?.timestamp || room.createdAt,
+          };
+        })
       );
-
-      socket.on("getChatHistory", async ({ chatRoomId }) => {
-        if (!chatRoomId) {
-          console.error("Invalid chat history request: chatRoomId is missing");
-          return;
-        }
-        try {
-          const messages = await this.matchingService.getChatHistory(chatRoomId);
-          const reversedMessages = [...messages].reverse(); 
-          console.log("Sending chat history:", reversedMessages);
-          socket.emit("chatHistory", reversedMessages);
-        } catch (error) {
-          console.error("Error getting chat history:", error);
-          socket.emit("error", { message: "Failed to get chat history" });
-        }
-      });
-
-      socket.on("getAllChats", async (data) => {
-        try {
-          const userId=data.userId;
-           const chatRooms = await ChatRoom.find({ participants: userId}).lean();
-
-          const chats = await Promise.all(
-            chatRooms.map(async (room) => {
-              const lastMessage = await Message.findOne({ chatRoomId: room._id,})
-              .sort({ timestamp: -1 });
-
-              const receiverId = room.participants.find((p) => p !== userId);
-              const receiver = await User.findById(receiverId);
-
-              return {
-                chatRoomId: room._id.toString(),
-                receiverId: receiver._id.toString(),
-                receiverNickname: receiver.nickname,
-                lastMessage: lastMessage?.content || "",
-                lastMessageTime: lastMessage?.timestamp || room.createdAt,
-              };
-            })
-          );
-
-          socket.emit("allChats", chats);
-        } catch (err) {
-          console.error("Error fetching all chats:", err);
-          socket.emit("error", { message: "Failed to fetch chat list" });
-        }
-      });
-
-  socket.on("disconnect", (reason) => {
-  const userId = socket.userId;
-  if (userId) {
-    const current = this.activeUsers.get(userId);
-
-    // Only delete if the same socket
-    if (current && current.id === socket.id) {
-      this.activeUsers.delete(userId);
-      this.matchingService.setUserOffline(userId);
-      this.matchingService.stopSearching(userId);
-
-      console.log(`User ${userId} disconnected. Reason: ${reason}`);
-      console.log("Updated active users:", Array.from(this.activeUsers.entries()));
+      socket.emit("allChats", chats);
+    } catch (err) {
+      console.error("Error fetching all chats:", err);
+      socket.emit("error", { message: "Failed to fetch chat list" });
     }
   }
-});
 
-    });
+  handleDisconnect(socket, reason) {
+    const userId = socket.userId;
+    if (!userId) return;
+
+    this.socketsByUser.delete(userId);
+    this.onlineUsers.delete(userId);
+
+    if (this.searchingUsers.has(userId)) {
+      clearTimeout(this.searchingUsers.get(userId).timeout);
+      this.searchingUsers.delete(userId);
+    }
+
+    console.log(`User ${userId} disconnected. Reason: ${reason}`);
+    this.logUsers();
+  }
+
+  registerSocketEvents(socket) {
+    socket.on("join", (userId) => this.handleJoin(socket, userId));
+    socket.on("userOnline", (userId) => this.handleUserOnline(socket, userId));
+
+    socket.on("joinRoom", (data) => this.handleJoinRoom(socket, data));
+    socket.on("leaveRoom", (data) => this.handleLeaveRoom(socket, data));
+
+    socket.on("startSearching", (data) => this.handleStartSearching(socket, data));
+    socket.on("stopSearching", (userId) => this.handleStopSearching(userId));
+
+    socket.on("sendMessage", (data) => this.handleSendMessage(socket, data));
+    socket.on("getChatHistory", (data) => this.handleGetChatHistory(socket, data));
+    socket.on("getAllChats", (data) => this.handleGetAllChats(socket, data));
+
+    socket.on("disconnect", (reason) => this.handleDisconnect(socket, reason));
+    socket.on("ping", () => socket.emit("pong"));
   }
 }
