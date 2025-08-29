@@ -121,20 +121,13 @@ export const profile=async (req,res)=>{
 
 export const me=async (req, res) => {
   try {
-    console.log("yha")
     const token = req.cookies.token;
-    console.log("yha2")
     if (!token) {
-      console.log("yha3")
       return res.status(401).json({ message: "Unauthorized" });
     }
-    console.log("yha4")
-    
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log("yha5")
     return res.json({ userId: decoded.userId, nickname: decoded.nickname , username:decoded.username});
   } catch (err) {
-    console.log("yha6")
     return res.status(401).json({ message: "Invalid token" });
   }
 }
