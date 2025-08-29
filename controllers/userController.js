@@ -94,7 +94,7 @@ export const login=async (req, res)=> {
         res.cookie('token', token, {
             httpOnly: true,  // Prevent JS access (XSS protection)
             secure: process.env.NODE_ENV === 'production', // HTTPS only in production
-            sameSite: 'lax', // CSRF protection
+            sameSite: 'none', // CSRF protection
             maxAge: 24 * 60 * 60 * 1000 // 1 day
         });
         
@@ -121,14 +121,20 @@ export const profile=async (req,res)=>{
 
 export const me=async (req, res) => {
   try {
+    console.log("yha")
     const token = req.cookies.token;
+    console.log("yha2")
     if (!token) {
+      console.log("yha3")
       return res.status(401).json({ message: "Unauthorized" });
     }
-
+    console.log("yha4")
+    
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log("yha5")
     return res.json({ userId: decoded.userId, nickname: decoded.nickname , username:decoded.username});
   } catch (err) {
+    console.log("yha6")
     return res.status(401).json({ message: "Invalid token" });
   }
 }
@@ -204,7 +210,7 @@ export const updateOrCreateFirebaseUser = async (req, res) => {
       res.cookie("token", token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
+        sameSite: "none",
         maxAge: 24 * 60 * 60 * 1000, // 1 days
       });
 

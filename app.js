@@ -19,7 +19,7 @@ const startServer = async () => {
   app.use(cookieParser());
   app.use(
     cors({
-      origin:process.env.YAPPER_WEB, // frontend
+      origin:[process.env.YAPPER_WEB,"http://localhost:5010"],
       credentials: true,              // allow cookies
     })
   );
@@ -33,7 +33,7 @@ const startServer = async () => {
   // Configure Socket.IO
   const io = new Server(server, {
     cors: {
-      origin: process.env.YAPPER_WEB,
+      origin: [process.env.YAPPER_WEB,"http://localhost:5010"],
       methods: ["GET", "POST","PUT"],
       credentials: true,
       allowedHeaders: ["*"],
