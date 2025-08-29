@@ -8,11 +8,11 @@ const router = express.Router();
 
 router.post('/signup', signUp);
 router.post('/login',login);
-router.get('/me', authMiddleware, me);
+router.get('/me', me);
 
 // Firebase Auth Route
 router.post('/firebase/update-profile', authenticateFirebase, updateOrCreateFirebaseUser);
-router.put('/profile',authMiddleware, profile);
+router.put('/profile', profile);
 router.put('/update-profile',authenticateFirebase,updateProfile);
 
 
