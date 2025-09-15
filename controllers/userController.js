@@ -121,14 +121,14 @@ export const profile=async (req,res)=>{
 
 export const me=async (req, res) => {
   try {
-    const token = req.cookies.token;
-    if (!token) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    return res.json({ userId: decoded.userId, nickname: decoded.nickname , username:decoded.username});
+    return res.status(200).json({ 
+    userId: req.user.userId, 
+    nickname: req.user.nickname, 
+    username: req.user.username,
+    success:true
+  });
   } catch (err) {
-    return res.status(401).json({ message: "Invalid token" });
+    return res.status(401).json({ message: "Invalid token", success:false });
   }
 }
 
@@ -271,3 +271,4 @@ export const updateProfile = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
